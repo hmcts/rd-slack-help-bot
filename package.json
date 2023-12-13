@@ -1,0 +1,32 @@
+{
+  "name": "rd-slack-help-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "watch": "nodemon app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "RD",
+  "license": "MIT",
+  "dependencies": {
+    "@hmcts/properties-volume": "^1.0.0",
+    "@slack/bolt": "^3.7.0",
+    "config": "^3.3.6",
+    "jira-client": "^6.23.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/config": "0.0.39",
+    "@types/jira-client": "^6.21.3",
+    "jest": "^26.6.3",
+    "jest-extended": "^0.11.5",
+    "nodemon": "^2.0.13"
+  },
+  "jest": {
+    "setupFilesAfterEnv": [
+      "jest-extended"
+    ]
+  }
+}

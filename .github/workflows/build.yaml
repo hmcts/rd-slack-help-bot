@@ -1,0 +1,54 @@
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+name: Publish
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Beginning of yarn setup, keep in sync between all workflows, see ci.yml
+      - name: use node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          registry-url: https://registry.npmjs.org/ # Needed for auth
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: '~/.npm'
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      - name: npm install
+        run: npm install
+      # End of  setup
+
+      - id: get-short-sha
+        uses: actions/github-script@v7.0.1
+        with:
+          script: |
+            const shortSha = context.sha.substring(0, 7)
+            core.setOutput('shortSha', shortSha)
+
+      - name: 'Build and push image'
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - run: |
+          docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/rd/slack-help-bot:pr-${{github.event.number}}-${{ steps.get-short-sha.outputs.shortSha }}
+          docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/rd/slack-help-bot:pr-${{github.event.number}}-${{ steps.get-short-sha.outputs.shortSha }}
+        if: startsWith(github.ref, 'refs/pull')
+      - run: |
+          docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/rd/slack-help-bot:prod-${{ steps.get-short-sha.outputs.shortSha }}-${{ github.run_number }}
+          docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/rd/slack-help-bot:prod-${{ steps.get-short-sha.outputs.shortSha }}-${{ github.run_number }}
+        if: github.ref == 'refs/heads/master'
