@@ -14,7 +14,7 @@
     "@hmcts/properties-volume": "^1.0.0",
     "@slack/bolt": "^3.7.0",
     "config": "^3.3.6",
-    "jira-client": "^6.23.0",
+    "jira-client": "^8.0.0",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
