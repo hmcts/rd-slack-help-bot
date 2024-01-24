@@ -287,8 +287,7 @@ function openHelpRequestBlocks() {
                 "element": {
                     "type": "radio_buttons",
                     "options": [
-                        option('CCD Support', 'ccd'),
-                        option('CFTS Level 2 Support', 'cfts'),
+                        option('Ref Data Support', 'rd')
                     ],
                     "action_id": "request_type"
                 },

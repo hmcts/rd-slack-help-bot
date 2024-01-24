@@ -114,8 +114,8 @@ async function createHelpRequestInJira(requestType, summary, project) {
             project: {
                 id: project.id
             },
-            description: undefined,
-            customfield_24700: [ { value: "No Environment" } ], // Environment - TODO Make this configurable and select appropriate value based on selection
+            description: undefined
+            //customfield_24700: [ { value: "No Environment" } ], // Environment - TODO Make this configurable and select appropriate value based on selection
         }
     });
 }
@@ -146,9 +146,7 @@ function buildFieldsForUpdate(reporter, labels) {
             reporter: {
                 name: reporter // API docs say ID, but our jira version doesn't have that field yet, may need to change in future
             },
-            labels: ['created-from-slack', ...labels],
-            fixVersions: [ { name: "CCD No Release Required" } ], // TODO Make this configurable
-            components: [ { name: "No Component" } ]
+            labels: ['created-from-slack', ...labels]
         }
     }
 }

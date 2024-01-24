@@ -52,7 +52,7 @@ const server = http.createServer((req, res) => {
 
         res.end('OK');
     } else if (req.url === '/health/readiness') {
-        res.end(`<h1>rds-slack-help-bot</h1>`)
+        res.end(`<h1>rd-slack-help-bot</h1>`)
     } else {
         res.end(`{"error": "${http.STATUS_CODES[404]}"}`)
     }
