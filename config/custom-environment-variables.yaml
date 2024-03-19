@@ -3,9 +3,14 @@ slack:
   report_channel_id: SLACK_REPORT_CHANNEL_ID
 
 jira:
+  start_transition_id: JIRA_START_TRANSITION_ID
+  done_transition_id: JIRA_DONE_TRANSITION_ID
   project: JIRA_PROJECT
   issue_type_id: JIRA_ISSUE_TYPE_ID
   issue_type_name: JIRA_ISSUE_TYPE_NAME
+
+app_insights:
+  instrumentation_key: APP_INSIGHTS_INSTRUMENTATION_KEY
 
 secrets:
   cftptl-intsvc:

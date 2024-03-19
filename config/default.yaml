@@ -1,7 +1,7 @@
 # defaults are setup for the platform engineering slack workspace
 slack:
-  #bot_token: no default
-  #app_token: no default
+  # bot_token: no default
+  # app_token: no default
   report_channel: ref-data-request-support
   report_channel_id: C0647KARC2G
   plato_link: slack://app?team=T1L0WSW9F&id=A01CW2HNX3J&tab=messages
@@ -15,9 +15,9 @@ jira:
   project: SBOX
   issue_type_name: Bug
   issue_type_id: 10900
-  #username: no default
-  #api_token: no default
+  # username: no default
+  # api_token: no default
 
 app_insights:
-  #instrumentation_key: no default
-  role_name: platops-slack-help-bot
+  # instrumentation_key: no default
+  role_name: rd-slack-help-bot
