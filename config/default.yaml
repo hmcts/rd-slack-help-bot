@@ -2,16 +2,12 @@
 slack:
   # bot_token: no default
   # app_token: no default
-  report_channel: ref-data-request-support
-  report_channel_id: C0647KARC2G
-  plato_link: slack://app?team=T1L0WSW9F&id=A01CW2HNX3J&tab=messages
-  plato_user_id: U01C35YF6S1
+  report_channel: bot-test
+  report_channel_id: C01KHKNJUKE
 
-# Investigate if these are compatible with rd workflow / issue types.
 jira:
-  # This is when you hit start in Slack. Also check mandatory fields in js to 
-  start_transition_id: 3
-  done_transition_id: 10102
+  start_transition_id: 21
+  done_transition_id: 41
   project: SBOX
   issue_type_name: Bug
   issue_type_id: 10900

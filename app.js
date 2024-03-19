@@ -3,10 +3,6 @@ const setupSecrets = require('./src/setupSecrets');
 // must be called before any config.get calls
 setupSecrets.setup();
 
-const { 
-    getReportChannel, 
-    isReportChannel
-} = require('./src/supportConfig');
 const {
     appHomeUnassignedIssues,
     extractSlackLinkFromText,
@@ -27,14 +23,12 @@ const {
     addCommentToHelpRequest,
     assignHelpRequest,
     createHelpRequest,
-    extractJiraId,
+    extraJiraId,
     extractJiraIdFromBlocks,
     resolveHelpRequest,
     searchForUnassignedOpenIssues,
     startHelpRequest,
     updateHelpRequestDescription,
-    updateHelpRequestCommonFields,
-
     getIssueDescription, markAsDuplicate
 } = require("./src/service/persistence");
 const appInsights = require('./src/modules/appInsights')
@@ -42,9 +36,9 @@ const appInsights = require('./src/modules/appInsights')
 appInsights.enableAppInsights()
 
 const app = new App({
-    token: config.get('secrets.cftptl-intsvc.rd-slack-bot-token'), //disable this if enabling OAuth in socketModeReceiver
+    token: config.get('slack.bot_token'), //disable this if enabling OAuth in socketModeReceiver
     // logLevel: LogLevel.DEBUG,
-    appToken: config.get('secrets.cftptl-intsvc.rd-slack-app-token'),
+    appToken: config.get('slack.app_token'),
     socketMode: true,
 });
 
@@ -63,7 +57,7 @@ const port = process.env.PORT || 3000
 const server = http.createServer((req, res) => {
     if (req.method !== 'GET') {
         res.statusCode = 405;
-        res.end(`{"error": "${http.STATUS_CODES[405]}"}`)
+        res.end("error")
     } else if (req.url === '/health') {
         const connectionError = app.receiver.client.badConnection;
         if (connectionError) {
@@ -383,17 +377,12 @@ app.view('create_help_request', async ({ ack, body, view, client }) => {
             testAccount: view.state.values.testAccount.testAccount.value,
         }
 
-        const requestType = view.state.values.request_type.request_type.selected_option.value
-
-        const jiraId = await createHelpRequest(requestType, helpRequest.summary)
-        
-        await updateHelpRequestCommonFields(jiraId, {
+        const jiraId = await createHelpRequest({
+            summary: helpRequest.summary,
             userEmail,
             labels: extractLabels(view.state.values)
         })
 
-        const reportChannel = getReportChannel(requestType)
-        console.log(`Publishing request ${jiraId} to channel ${reportChannel}`)
         const result = await client.chat.postMessage({
             channel: reportChannel,
             text: 'New support request raised',
@@ -549,33 +538,6 @@ app.action('resolve_help_request', async ({
     try {
         await ack();
 
-//        const jiraId = extractJiraIdFromBlocks(body.message.blocks)
-//
-//        await resolveHelpRequest(jiraId) // TODO add optional resolution comment
-//
-//        const blocks = body.message.blocks
-//        // TODO less fragile block updating
-//        blocks[6].elements[2] = {
-//            "type": "button",
-//            "text": {
-//                "type": "plain_text",
-//                "text": ":snow_cloud: Re-open",
-//                "emoji": true
-//            },
-//            "style": "primary",
-//            "value": "start_help_request",
-//            "action_id": "start_help_request"
-//        }
-//
-//        blocks[2].fields[0].text = "Status :snowflake:\n Done"
-//
-//        await client.chat.update({
-//            channel: body.channel.id,
-//            ts: body.message.ts,
-//            text: 'New support request raised',
-//            blocks: blocks
-//        });
-
         // Trigger IDs have a short lifespan, so process them first
         await client.views.open({
             trigger_id: body.trigger_id,
@@ -690,7 +652,7 @@ app.action('app_home_unassigned_user_select', async ({
             user
         })).profile.email
 
-        const jiraId = extractJiraId(action.block_id)
+        const jiraId = extraJiraId(action.block_id)
         await assignHelpRequest(jiraId, userEmail)
 
         await reopenAppHome(client, user);
@@ -721,7 +683,7 @@ app.action('app_home_take_unassigned_issue', async ({
             user
         })).profile.email
 
-        const jiraId = extractJiraId(action.block_id)
+        const jiraId = extraJiraId(action.block_id)
         const slackMessageId = extractSlackMessageId(body, action);
 
         await assignHelpRequest(jiraId, userEmail)
@@ -795,7 +757,7 @@ app.event('message', async ({ event, context, client, say }) => {
     try {
         // filter unwanted channels in case someone invites the bot to it
         // and only look at threaded messages
-        if (isReportChannel(event.channel) && event.thread_ts) {
+        if (event.channel === reportChannelId && event.thread_ts) {
             const slackLink = (await client.chat.getPermalink({
                 channel: event.channel,
                 'message_ts': event.thread_ts

@@ -75,7 +75,7 @@ function helpRequestRaised({
                 },
                 {
                     "type": "mrkdwn",
-                    "text": `*Priority* :rotating_light: \n ${priority}`
+                    "text": `*Priority* :chart_with_upwards_trend: \n ${priority}`
                 },
                 {
                     "type": "mrkdwn",
@@ -293,7 +293,7 @@ function openHelpRequestBlocks() {
     return {
         "title": {
             "type": "plain_text",
-            "text": "Support request"
+            "text": "TM Support request"
         },
         "submit": {
             "type": "plain_text",
