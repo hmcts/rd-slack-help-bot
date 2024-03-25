@@ -1,15 +1,17 @@
 slack:
+  bot_token: SLACK_BOT_TOKEN
+  app_token: SLACK_APP_TOKEN
   report_channel: SLACK_REPORT_CHANNEL
   report_channel_id: SLACK_REPORT_CHANNEL_ID
 
 jira:
+  start_transition_id: JIRA_START_TRANSITION_ID
+  done_transition_id: JIRA_DONE_TRANSITION_ID
   project: JIRA_PROJECT
   issue_type_id: JIRA_ISSUE_TYPE_ID
   issue_type_name: JIRA_ISSUE_TYPE_NAME
+  username: JIRA_USERNAME
+  api_token: JIRA_API_TOKEN
 
-secrets:
-  cftptl-intsvc:
-    jira-username: JIRA_USERNAME
-    jira-api-token: JIRA_API_TOKEN
-    rd-slack-bot-token: SLACK_BOT_TOKEN
-    rd-slack-app-token: SLACK_APP_TOKEN
+app_insights:
+  instrumentation_key: APP_INSIGHTS_INSTRUMENTATION_KEY

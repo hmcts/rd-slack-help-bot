@@ -4,7 +4,24 @@ function convertJiraKeyToUrl(jiraId) {
     return `https://tools.hmcts.net/jira/browse/${jiraId}`;
 }
 
+const config = require('config')
+
+const slackChannelId = config.get('slack.report_channel_id')
+const slackMessageIdRegex = new RegExp(`${slackChannelId}\/(.*)\\|`)
+
 const slackLinkRegex = /view in Slack\|(https:\/\/.+slack\.com.+)]/
+
+function extractSlackMessageIdFromText(text) {
+    if (text === undefined) {
+        return undefined
+    }
+
+    const regexResult = slackMessageIdRegex.exec(text);
+    if (regexResult === null) {
+        return undefined
+    }
+    return regexResult[1]
+}
 
 function extractSlackLinkFromText(text) {
     if (text === undefined) {
@@ -29,13 +46,15 @@ function stringTrim(string, maxLength) {
 }
 
 function helpRequestRaised({
-                               user,
-                               summary,
-                               priority,
-                               environment,
-                               references,
-                               jiraId
-                           }) {
+    user,
+    summary,
+    priority,
+    environment,
+    references,
+    replicateSteps,
+    testAccount,
+    jiraId
+}) {
     return [
         {
             "type": "section",
@@ -56,7 +75,7 @@ function helpRequestRaised({
                 },
                 {
                     "type": "mrkdwn",
-                    "text": `*Priority* :rotating_light: \n ${priority}`
+                    "text": `*Priority* :chart_with_upwards_trend: \n ${priority}`
                 },
                 {
                     "type": "mrkdwn",
@@ -135,7 +154,7 @@ function helpRequestRaised({
 function helpRequestDetails(
     {
         description,
-        analysis
+        analysis,
     }) {
     return [
         {
@@ -156,12 +175,12 @@ function helpRequestDetails(
 }
 
 function unassignedOpenIssue({
-                                 summary,
-                                 slackLink,
-                                 jiraId,
-                                 created,
-                                 updated
-                             }) {
+    summary,
+    slackLink,
+    jiraId,
+    created,
+    updated
+}) {
     const link = slackLink ? slackLink : convertJiraKeyToUrl(jiraId)
 
     return [
@@ -218,7 +237,7 @@ function unassignedOpenIssue({
                 }
             ]
         },
-        ]
+    ]
 }
 
 function appHomeUnassignedIssues(openIssueBlocks) {
@@ -274,7 +293,7 @@ function openHelpRequestBlocks() {
     return {
         "title": {
             "type": "plain_text",
-            "text": "Support request"
+            "text": "RefData Support request"
         },
         "submit": {
             "type": "plain_text",
@@ -283,32 +302,13 @@ function openHelpRequestBlocks() {
         "blocks": [
             {
                 "type": "input",
-                "block_id": "request_type",
-                "element": {
-                    "type": "radio_buttons",
-                    "options": [
-                        option('CCD Support', 'ccd'),
-                        option('CFTS Level 2 Support', 'cfts'),
-                    ],
-                    "action_id": "request_type"
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "Request type"
-                }
-            },
-            {
-                "type": "divider"
-            },
-            {
-                "type": "input",
                 "block_id": "summary",
                 "element": {
                     "type": "plain_text_input",
                     "action_id": "title",
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "Short description of the issue"
+                        "text": "Brief description of the issue"
                     }
                 },
                 "label": {
@@ -318,6 +318,7 @@ function openHelpRequestBlocks() {
             },
             {
                 "type": "input",
+                "block_id": "urls",
                 "block_id": "priority",
                 "element": {
                     "type": "static_select",
@@ -337,6 +338,31 @@ function openHelpRequestBlocks() {
                 "label": {
                     "type": "plain_text",
                     "text": "Priority",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "category",
+                "element": {
+                    "type": "static_select",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Select a category",
+                        "emoji": true
+                    },
+                    "options": [
+                        option('Onboarding'),
+                        option('Potential Bug', 'bug'),
+                        option('Access Issues', 'access'),
+                        option('Testing'),
+                        option('Other')
+                    ],
+                    "action_id": "category"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Request category",
                     "emoji": true
                 }
             },
@@ -374,10 +400,8 @@ function openHelpRequestBlocks() {
                         option('Production'),
                         option('Perftest / Test', 'test'),
                         option('Demo'),
-                        option('Demo INT', 'demo-int'),
-                        option('WA INT', 'wa-int'),
                         option('ITHC'),
-                        option('N/A', 'none'),
+                        option('N/A', 'none')
                     ],
                     "action_id": "environment"
                 },
@@ -398,6 +422,38 @@ function openHelpRequestBlocks() {
                 "label": {
                     "type": "plain_text",
                     "text": "Issue description",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "replicateSteps",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": true,
+                    "action_id": "replicateSteps"
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Steps to replicate",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "testAccount",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": false,
+                    "action_id": "testAccount",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Username / Password used to replicate issue"
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Test account",
                     "emoji": true
                 }
             },
@@ -427,6 +483,7 @@ function openHelpRequestBlocks() {
                     },
                     "options": [
                         option('Access Management', 'am'),
+                        option('Adoption'),
                         option('Architecture'),
                         option('Bulk scan', 'bulkscan'),
                         option('Bulk print', 'bulkprint'),
@@ -438,8 +495,11 @@ function openHelpRequestBlocks() {
                         option('Domestic Abuse', "domesticabuse"),
                         option('No fault divorce', 'nfdivorce'),
                         option('Employment Tribunals', 'et'),
+                        option('Ethos'),
                         option('Evidence Management', 'evidence'),
                         option('Expert UI', 'xui'),
+                        option('FaCT'),
+                        option('Fee & Pay', 'feeAndPay'),
                         option('Financial Remedy', 'finrem'),
                         option('FPLA'),
                         option('Family Private Law', 'FPRL'),
@@ -450,6 +510,7 @@ function openHelpRequestBlocks() {
                         option('Immigration and Asylum', 'iac'),
                         option('IDAM'),
                         option('Other'),
+                        option('Private Law','private-law'),
                         option('Probate'),
                         option('Reference Data', 'refdata'),
                         option('Reform Software Engineering', 'reform-software-engineering'),
@@ -466,11 +527,290 @@ function openHelpRequestBlocks() {
                     "text": "Which team are you from?",
                     "emoji": true
                 }
+            },
+
+        ],
+        "type": "modal",
+        callback_id: 'create_help_request'
+    }
+
+}
+
+function superBotMessageBlocks(inputs) {
+    return [
+        {
+            "type": "input",
+            "block_id": 'summary_block',
+            "label": {
+                "type": "plain_text",
+                "text": "Summary"
+            },
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "summary_input",
+                "initial_value": inputs?.summary?.value ?? ""
+            }
+        },
+        {
+            "type": "input",
+            "block_id": 'env_block',
+            "label": {
+                "type": "plain_text",
+                "text": "Environment"
+            },
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "env_input",
+                "initial_value": inputs?.env?.value ?? ""
+            }
+        },
+        {
+            "type": "input",
+            "block_id": 'team_block',
+            "label": {
+                "type": "plain_text",
+                "text": "Team"
+            },
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "team_input",
+                "initial_value": inputs?.team?.value ?? ""
+            }
+        },
+        {
+            "type": "input",
+            "block_id": 'area_block',
+            "label": {
+                "type": "plain_text",
+                "text": "Area"
+            },
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "area_input",
+                "initial_value": inputs?.area?.value ?? ""
+            }
+        },
+        {
+            "type": "input",
+            "block_id": 'build_block',
+            "label": {
+                "type": "plain_text",
+                "text": "PR / build URLs"
+            },
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "build_input",
+                "initial_value": inputs?.build?.value ?? ""
+            }
+        },
+        {
+            "type": "input",
+            "block_id": 'desc_block',
+            "label": {
+                "type": "plain_text",
+                "text": "Description"
+            },
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "desc_input",
+                "initial_value": inputs?.desc?.value ?? ""
+            }
+        },
+        {
+            "type": "input",
+            "block_id": 'alsys_block',
+            "label": {
+                "type": "plain_text",
+                "text": "Analysis done so far, or additional context"
+            },
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "alsys_input",
+                "initial_value": inputs?.alsys?.value ?? ""
+            }
+        },
+        {
+            "type": "input",
+            "block_id": 'team_check_block',
+            "label": {
+                "type": "plain_text",
+                "text": "Have you checked with your team?"
+            },
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "team_check_input",
+                "initial_value": inputs?.team_check?.value ?? ""
+            }
+        },
+        {
+            "type": "input",
+            "block_id": 'user_block',
+            "label": {
+                "type": "plain_text",
+                "text": "Ticket Raiser"
+            },
+            "element": {
+                "type": "users_select",
+                "action_id": "user_input",
+                "initial_user": inputs?.user?.value ?? " ",
+            }
+        },
+    ];
+}
+
+function duplicateHelpRequest({
+    summary,
+    parentJiraId,
+    parentSlackUrl,
+    currentIssueJiraId,
+}) {
+    return [
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: summary
+            }
+        },
+        {
+            type: "divider"
+        },
+        {
+            type: "section",
+            fields: [
+                {
+                    type: "mrkdwn",
+                    text: `View on Jira: <${convertJiraKeyToUrl(currentIssueJiraId)}|${currentIssueJiraId}>`
+                },
+                {
+                    type: "mrkdwn",
+                    text: `Duplicate of <${parentSlackUrl}|${parentJiraId}>`
+                }
+            ]
+        }
+    ]
+}
+
+function resolveHelpRequestBlocks({thread_ts}) {
+    return {
+        "title": {
+            "type": "plain_text",
+            "text": "Document Help Request"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Document"
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "block_id": "title_block",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":pencil: *Run into this problem often?*"
+                }
+            },
+            {
+                "type": "section",
+                "block_id": "subtitle_block",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Write some documentation to help out next time!\nKeep answers brief, but make them informative.",
+                    "emoji": true
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "where_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": true,
+                    "action_id": "where",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Where did you look to identify the problem?"
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": ":mag: Where?"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "what_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "what",
+                    "multiline": true,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "What was the underlying cause of the problem?\nWhat resources were affected?"
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": ":exclamation: What?"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "how_block",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "how",
+                    "multiline": true,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "How did you fix the problem?"
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": ":bulb: How?"
+                }
             }
         ],
         "type": "modal",
-        "callback_id": "create_help_request"
+        "callback_id": 'document_help_request',
+        // We use the private_metadata field to smuggle the ts of the thread
+        // into the form so the bot knows where to reply when the form is submitted
+        "private_metadata": `${thread_ts}`,
     }
+
+}
+
+function helpRequestDocumentation({where, what, how}) {
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": ":pencil: *Help Provided:*"
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": `:mag: *Where:* ${where}`
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": `:exclamation: *What:* ${what}`
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": `:bulb: *How:* ${how}`
+            }
+        }
+    ];
 }
 
 module.exports.appHomeUnassignedIssues = appHomeUnassignedIssues;
@@ -479,3 +819,8 @@ module.exports.helpRequestRaised = helpRequestRaised;
 module.exports.helpRequestDetails = helpRequestDetails;
 module.exports.openHelpRequestBlocks = openHelpRequestBlocks;
 module.exports.extractSlackLinkFromText = extractSlackLinkFromText;
+module.exports.extractSlackMessageIdFromText = extractSlackMessageIdFromText;
+module.exports.superBotMessageBlocks = superBotMessageBlocks;
+module.exports.duplicateHelpRequest = duplicateHelpRequest;
+module.exports.resolveHelpRequestBlocks = resolveHelpRequestBlocks;
+module.exports.helpRequestDocumentation = helpRequestDocumentation;

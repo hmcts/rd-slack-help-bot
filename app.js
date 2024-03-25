@@ -1,59 +1,97 @@
 const config = require('@hmcts/properties-volume').addTo(require('config'))
+const setupSecrets = require('./src/setupSecrets');
+// must be called before any config.get calls
+setupSecrets.setup();
 
-const { 
-    getReportChannel, 
-    isReportChannel
-} = require('./src/supportConfig');
 const {
     appHomeUnassignedIssues,
     extractSlackLinkFromText,
+    extractSlackMessageIdFromText,
     helpRequestDetails,
     helpRequestRaised,
     openHelpRequestBlocks,
+    superBotMessageBlocks,
     unassignedOpenIssue,
-} = require('./src/messages');
-const {App, LogLevel, SocketModeReceiver} = require('@slack/bolt');
+    duplicateHelpRequest,
+    resolveHelpRequestBlocks,
+    helpRequestDocumentation,
+} = require("./src/messages");
+const { App, LogLevel, SocketModeReceiver, WorkflowStep } = require('@slack/bolt');
 const crypto = require('crypto')
 const {
+    addCommentToHelpRequestResolve,
     addCommentToHelpRequest,
     assignHelpRequest,
     createHelpRequest,
-    extractJiraId,
+    extraJiraId,
     extractJiraIdFromBlocks,
     resolveHelpRequest,
     searchForUnassignedOpenIssues,
     startHelpRequest,
     updateHelpRequestDescription,
-    updateHelpRequestCommonFields
+    getIssueDescription, markAsDuplicate
 } = require("./src/service/persistence");
+const appInsights = require('./src/modules/appInsights')
+
+appInsights.enableAppInsights()
 
 const app = new App({
-    token: config.get('secrets.cftptl-intsvc.rd-slack-bot-token'), //disable this if enabling OAuth in socketModeReceiver
+    token: config.get('slack.bot_token'), //disable this if enabling OAuth in socketModeReceiver
     // logLevel: LogLevel.DEBUG,
-    appToken: config.get('secrets.cftptl-intsvc.rd-slack-app-token'),
+    appToken: config.get('slack.app_token'),
     socketMode: true,
 });
 
-const http = require('http');
+const reportChannel = config.get('slack.report_channel');
+// can't find an easy way to look this up via API unfortunately :(
+const reportChannelId = config.get('slack.report_channel_id');
 
+//////////////////////////////////
+//// Setup health check page /////
+//////////////////////////////////
+
+const http = require('http');
+const { report } = require('process');
 const port = process.env.PORT || 3000
 
 const server = http.createServer((req, res) => {
     if (req.method !== 'GET') {
-        res.end(`{"error": "${http.STATUS_CODES[405]}"}`)
+        res.statusCode = 405;
+        res.end("error")
     } else if (req.url === '/health') {
-        res.end(`<h1>rd-slack-help-bot</h1>`)
+        const connectionError = app.receiver.client.badConnection;
+        if (connectionError) {
+            res.statusCode = 500;
+        } else {
+            res.statusCode = 200;
+        }
+        const myResponse = {
+            status: "UP",
+            slack: {
+                connection: connectionError ? "DOWN" : "UP",
+            },
+            node: {
+                uptime: process.uptime(),
+                time: new Date().toString(),
+            }
+        };
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify(myResponse))
     } else if (req.url === '/health/liveness') {
         if (app.receiver.client.badConnection) {
             res.statusCode = 500
             res.end('Internal Server Error');
             return;
         }
-
         res.end('OK');
     } else if (req.url === '/health/readiness') {
-        res.end(`<h1>rds-slack-help-bot</h1>`)
+        res.end(`<h1>rd-slack-help-bot</h1>`)
+    } else if (req.url === '/health/error') {
+        // Dummy error page
+        res.statusCode = 500;
+        res.end(`{"error": "${http.STATUS_CODES[500]}"}`)
     } else {
+        res.statusCode = 404;
         res.end(`{"error": "${http.STATUS_CODES[404]}"}`)
     }
 })
@@ -62,15 +100,198 @@ server.listen(port, () => {
     console.log(`Server listening on port ${port}`);
 });
 
+//////////////////////////
+//// Setup Slack Bolt ////
+//////////////////////////
+
 (async () => {
     await app.start();
     console.log('⚡️ Bolt app started');
 })();
 
+const ws = new WorkflowStep('superbot_help_request', {
+    ////////////////////////////////////
+    ////  New workflow for SuperBot ////
+    ////////////////////////////////////
+    //// This can be added directly ////
+    ////  into the workflow builder ////
+    ////   in Slack, just give the  ////
+    ////  user a form or something  ////
+    ////     to fill out first.     ////
+    ////////////////////////////////////
+
+    edit: async ({ ack, step, configure }) => {
+        // Called when the workflow step is
+        // added/edited in the Slack workflow
+        // builder. This is what generates the
+        // customization form when you click 'edit'
+        await ack();
+        console.log('Slack workflow editor has been opened: ' + JSON.stringify(step))
+
+        const blocks = superBotMessageBlocks(step.inputs);
+        await configure({ blocks });
+    },
+    save: async ({ ack, step, view, update, client }) => {
+        // Called when the workflow step is
+        // saved in the Slack workflow
+        // builder. This is responsible for
+        // updating the inputs in this stage
+        // when 'save' is clicked on the 'edit'
+        // form
+        await ack();
+        const { values } = view.state;
+
+        console.log('Slack workflow has been changed: ' + JSON.stringify(values));
+
+        // names/paths of these values must match those in the
+        // 'action_id' and 'block_id' parameters in original form.
+        // See src/messages.js:superBotMessageBlocks(inputs)
+        const summary = values.summary_block.summary_input;
+        const env = values.env_block.env_input;
+        const team = values.team_block.team_input;
+        const area = values.area_block.area_input;
+        const build = values.build_block.build_input;
+        const desc = values.desc_block.desc_input;
+        const alsys = values.alsys_block.alsys_input;
+        const team_check = values.team_check_block.team_check_input;
+        const user = values.user_block.user_input;
+
+        // skip_variable_replacement does something,
+        // I honestly can't tell from slack's documentation.
+        const inputs = {
+            summary: {
+                value: summary.value,
+                skip_variable_replacement: false
+            },
+            env: {
+                value: env.value,
+                skip_variable_replacement: false
+            },
+            team: {
+                value: team.value,
+                skip_variable_replacement: false
+            },
+            area: {
+                value: area.value,
+                skip_variable_replacement: false
+            },
+            build: {
+                value: build.value,
+                skip_variable_replacement: false
+            },
+            desc: {
+                value: desc.value,
+                skip_variable_replacement: false
+            },
+            alsys: {
+                value: alsys.value,
+                skip_variable_replacement: false
+            },
+            team_check: {
+                value: team_check.value,
+                skip_variable_replacement: false
+            },
+            user: {
+                value: user.selected_user,
+                skip_variable_replacement: false
+            },
+        };
+
+        const outputs = [ ];
+
+        await update({ inputs, outputs });
+    },
+    execute: async ({ step, complete, fail, client }) => {
+
+        const { inputs } = step;
+        console.log("Slack workflow has been executed: " + JSON.stringify(inputs));
+
+        const user = inputs.user.value;
+
+        const userEmail = (await client.users.profile.get({
+            user
+        })).profile.email
+
+        const helpRequest = {
+            user,
+            summary: inputs.summary.value || "None",
+            environment: inputs.env.value || "None",
+            team: inputs.team.value || "None",
+            description: inputs.desc.value,
+            analysis: inputs.alsys.value,
+            replicateSteps: inputs.replicateSteps.value,
+            testAccount: inputs.testAccount.value,
+            references: inputs.references.value
+        }
+
+        // using JIRA version v8.15.0#815001-sha1:9cd993c:node1,
+        // check if API is up-to-date
+        const jiraId = await createHelpRequest({
+            summary: helpRequest.summary,
+            userEmail,
+            // Jira labels go here, can't contain spaces btw
+            // TODO: Put this in a function?
+            // TODO: Add more labels?
+            labels: [
+                `area-${inputs.area.value.toLowerCase().replace(' ', '-')}`,
+                `team-${inputs.team.value.toLowerCase().replace(' ', '-')}`
+            ]
+        });
+
+        const result = await client.chat.postMessage({
+            channel: reportChannel,
+            text: 'New support request raised',
+            blocks: helpRequestRaised({
+                ...helpRequest,
+                jiraId
+            })
+        });
+
+        if (!result.ok)
+        {
+            console.log("An error occurred when posting to Slack: " + JSON.stringify(result));
+        }
+
+        const response = await client.chat.postMessage({
+            channel: reportChannel,
+            thread_ts: result.message.ts,
+            text: 'New support request raised',
+            blocks: helpRequestDetails(helpRequest)
+        });
+
+        if (!response.ok)
+        {
+            console.log("An error occurred when posting to Slack: " + JSON.stringify(response))
+            return;
+        }
+
+        const permaLink = (await client.chat.getPermalink({
+            channel: result.channel,
+            'message_ts': result.message.ts
+        })).permalink
+
+        await updateHelpRequestDescription(jiraId, {
+            ...helpRequest,
+            slackLink: permaLink
+        });
+
+        complete();
+    },
+});
+
+app.step(ws);
+
+/////////////////////////////
+//// Setup App Homepage  ////
+/////////////////////////////
+//// I don't think we're ////
+//// actually using this ////
+/////////////////////////////
+
 async function reopenAppHome(client, userId) {
     const results = await searchForUnassignedOpenIssues()
 
-    const parsedResults = results.issues.slice(0, 5).flatMap(result => {
+    const parsedResults = results.issues.flatMap(result => {
         return unassignedOpenIssue({
             summary: result.fields.summary,
             slackLink: extractSlackLinkFromText(result.fields.description),
@@ -90,19 +311,19 @@ async function reopenAppHome(client, userId) {
 }
 
 // Publish a App Home
-app.event('app_home_opened', async ({event, client}) => {
+app.event('app_home_opened', async ({ event, client }) => {
     await reopenAppHome(client, event.user);
 });
 
 // Message Shortcut example
-app.shortcut('launch_msg_shortcut', async ({shortcut, body, ack, context, client}) => {
+app.shortcut('launch_msg_shortcut', async ({ shortcut, body, ack, context, client }) => {
     await ack();
 });
 
 // Global Shortcut example
 // setup global shortcut in App config with `launch_shortcut` as callback id
 // add `commands` scope
-app.shortcut('launch_shortcut', async ({shortcut, body, ack, context, client}) => {
+app.shortcut('launch_shortcut', async ({ shortcut, body, ack, context, client }) => {
     try {
         // Acknowledge shortcut request
         await ack();
@@ -122,10 +343,16 @@ app.shortcut('launch_shortcut', async ({shortcut, body, ack, context, client}) =
 function extractLabels(values) {
     const priority = `priority-${values.priority.priority.selected_option.value}`
     const team = `team-${values.team.team.selected_option.value}`
-    return [priority, team];
+    const category = `category-${values.category.category.selected_option.value}`
+    return [priority, team, category];
 }
 
-app.view('create_help_request', async ({ack, body, view, client}) => {
+app.view('create_help_request', async ({ ack, body, view, client }) => {
+    ////////////////////////////////////////////////////////////
+    //// SuperBot: This entry point isn't used anymore, but ////
+    ////           we can keep it around just in case :)    ////
+    ////////////////////////////////////////////////////////////
+
     // Acknowledge the view_submission event
     await ack();
 
@@ -140,24 +367,22 @@ app.view('create_help_request', async ({ack, body, view, client}) => {
         const helpRequest = {
             user,
             summary: view.state.values.summary.title.value,
+            category: view.state.values.category.category.selected_option.text.text,
             priority: view.state.values.priority.priority.selected_option.text.text,
-            references: view.state.values.references?.title?.value || "None",
+            references: view.state.values.references?.references?.value || "None",
             environment: view.state.values.environment.environment.selected_option?.text.text || "None",
             description: view.state.values.description.description.value,
             analysis: view.state.values.analysis.analysis.value,
+            replicateSteps: view.state.values.replicateSteps.replicateSteps.value,
+            testAccount: view.state.values.testAccount.testAccount.value,
         }
 
-        const requestType = view.state.values.request_type.request_type.selected_option.value
-
-        const jiraId = await createHelpRequest(requestType, helpRequest.summary)
-        
-        await updateHelpRequestCommonFields(jiraId, {
+        const jiraId = await createHelpRequest({
+            summary: helpRequest.summary,
             userEmail,
             labels: extractLabels(view.state.values)
         })
 
-        const reportChannel = getReportChannel(requestType)
-        console.log(`Publishing request ${jiraId} to channel ${reportChannel}`)
         const result = await client.chat.postMessage({
             channel: reportChannel,
             text: 'New support request raised',
@@ -191,27 +416,94 @@ app.view('create_help_request', async ({ack, body, view, client}) => {
 
 // subscribe to 'app_mention' event in your App config
 // need app_mentions:read and chat:write scopes
-app.event('app_mention', async ({event, context, client, say}) => {
+app.event('app_mention', async ({ event, context, client, say }) => {
     try {
-        await say({
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": `Thanks for the mention <@${event.user}>!`
-                    },
+        // filter unwanted channels in case someone invites the bot to it
+        // and only look at threaded messages
+        if (event.channel === reportChannelId && event.thread_ts) {
+            const helpRequestMessages = (await client.conversations.replies({
+                channel: reportChannelId,
+                ts: event.thread_ts,
+                limit: 200, // after a thread is 200 long we'll break but good enough for now
+            })).messages
+
+            if (helpRequestMessages.length > 0 && helpRequestMessages[0].text === 'New support request raised') {
+                if (event.text.includes('help')) {
+                    const usageMessage = `Hi <@${event.user}>, here is what I can do:
+\`duplicate\ [JiraID]\` - Marks this ticket as a duplicate of the specified ID`
+
+                    await say({
+                        text: usageMessage,
+                        thread_ts: event.thread_ts
+                    });
+                } else if (event.text.includes('duplicate')) {
+                    const result = event.text.match(/.+duplicate ([A-Z]+-[0-9]+)/);
+                    if (result) {
+                        const blocks = helpRequestMessages[0].blocks
+                        const summary = extractSummaryFromBlocks(blocks)
+                        const parentJiraId = result[1];
+                        const issueDescription = await getIssueDescription(parentJiraId)
+
+                        if (issueDescription === undefined) {
+                            await say({
+                                text: `Hi <@${event.user}>, I couldn't find that Jira ID, please check and try again.`,
+                                thread_ts: event.thread_ts
+                            });
+                            return;
+                        }
+
+                        const parentSlackUrl = extractSlackLinkFromText(issueDescription)
+                        const currentIssueJiraId = extractJiraIdFromBlocks(blocks)
+
+                        await markAsDuplicate(currentIssueJiraId, parentJiraId)
+
+                        await client.chat.update({
+                            channel: event.channel,
+                            ts: helpRequestMessages[0].ts,
+                            text: 'Duplicate issue',
+                            blocks: duplicateHelpRequest({
+                                summary,
+                                parentJiraId,
+                                parentSlackUrl,
+                                currentIssueJiraId
+                            })
+                        });
+
+                        await client.reactions.add({
+                            name: 'white_check_mark',
+                            timestamp: event.ts,
+                            channel: event.channel
+                        });
+
+                    } else {
+                        await say({
+                            text: `Hi <@${event.user}>, I couldn't find that Jira ID, please check and try again.`,
+                            thread_ts: event.thread_ts
+                        });
+                    }
+
+
+                } else {
+                    await say({
+                        text: `Hi <@${event.user}>, if you want to escalate a request please tag \`tm-support\`, to see what else I can do reply back with \`help\``,
+                        thread_ts: event.thread_ts
+                    });
                 }
-            ]
-        });
+
+            }
+        }
     } catch (error) {
         console.error(error);
     }
 });
 
+function extractSummaryFromBlocks(blocks) {
+    return blocks[0].text.text
+}
+
 app.action('assign_help_request_to_me', async ({
-                                                   body, action, ack, client, context
-                                               }) => {
+    body, action, ack, client, context
+}) => {
     try {
         await ack();
 
@@ -241,15 +533,37 @@ app.action('assign_help_request_to_me', async ({
 })
 
 app.action('resolve_help_request', async ({
-                                              body, action, ack, client, context
-                                          }) => {
+    body, action, ack, client, context, payload
+}) => {
     try {
         await ack();
-        const jiraId = extractJiraIdFromBlocks(body.message.blocks)
 
-        await resolveHelpRequest(jiraId) // TODO add optional resolution comment
+        // Trigger IDs have a short lifespan, so process them first
+        await client.views.open({
+            trigger_id: body.trigger_id,
+            view: resolveHelpRequestBlocks({thread_ts: body.message.ts}),
+        });
 
-        const blocks = body.message.blocks
+    } catch (error) {
+        console.error(error);
+    }
+});
+
+app.view('document_help_request', async ({ ack, body, view, client }) => {
+    try{
+        await ack();
+
+        const helpRequestMessages = (await client.conversations.replies({
+            channel: reportChannelId,
+            ts: body.view.private_metadata,
+            limit: 200, // after a thread is 200 long we'll break but good enough for now
+        })).messages
+
+        const jiraId = extractJiraIdFromBlocks(helpRequestMessages[0].blocks)
+
+        await resolveHelpRequest(jiraId)
+
+        const blocks = helpRequestMessages[0].blocks
         // TODO less fragile block updating
         blocks[6].elements[2] = {
             "type": "button",
@@ -266,20 +580,34 @@ app.action('resolve_help_request', async ({
         blocks[2].fields[0].text = "Status :snowflake:\n Done"
 
         await client.chat.update({
-            channel: body.channel.id,
-            ts: body.message.ts,
+            channel: reportChannelId,
+            ts: body.view.private_metadata,
             text: 'New support request raised',
             blocks: blocks
+        });
+
+        const documentation = {
+            what: body.view.state.values.what_block.what.value,
+            where: body.view.state.values.where_block.where.value,
+            how: body.view.state.values.how_block.how.value,
+        };
+
+        await addCommentToHelpRequestResolve(jiraId, documentation)
+
+        await client.chat.postMessage({
+            channel: reportChannel,
+            thread_ts: body.view.private_metadata,
+            text: 'Support request documented',
+            blocks: helpRequestDocumentation(documentation)
         });
     } catch (error) {
         console.error(error);
     }
 });
 
-
 app.action('start_help_request', async ({
-                                            body, action, ack, client, context
-                                        }) => {
+    body, action, ack, client, context
+}) => {
     try {
         await ack();
         const jiraId = extractJiraIdFromBlocks(body.message.blocks)
@@ -314,8 +642,8 @@ app.action('start_help_request', async ({
 });
 
 app.action('app_home_unassigned_user_select', async ({
-                                                         body, action, ack, client, context
-                                                     }) => {
+    body, action, ack, client, context
+}) => {
     try {
         await ack();
 
@@ -324,7 +652,7 @@ app.action('app_home_unassigned_user_select', async ({
             user
         })).profile.email
 
-        const jiraId = extractJiraId(action.block_id)
+        const jiraId = extraJiraId(action.block_id)
         await assignHelpRequest(jiraId, userEmail)
 
         await reopenAppHome(client, user);
@@ -333,9 +661,20 @@ app.action('app_home_unassigned_user_select', async ({
     }
 })
 
+function extractSlackMessageId(body, action) {
+    let result
+    for (let i = 0; i < body.view.blocks.length; i++) {
+        if (body.view.blocks[i].block_id === action.block_id) {
+            const slackLink = body.view.blocks[i - 1].text.text
+            return extractSlackMessageIdFromText(slackLink)
+        }
+    }
+    return result
+}
+
 app.action('app_home_take_unassigned_issue', async ({
-                                                         body, action, ack, client, context
-                                                     }) => {
+    body, action, ack, client, context
+}) => {
     try {
         await ack();
 
@@ -344,7 +683,8 @@ app.action('app_home_take_unassigned_issue', async ({
             user
         })).profile.email
 
-        const jiraId = extractJiraId(action.block_id)
+        const jiraId = extraJiraId(action.block_id)
+        const slackMessageId = extractSlackMessageId(body, action);
 
         await assignHelpRequest(jiraId, userEmail)
 
@@ -355,8 +695,8 @@ app.action('app_home_take_unassigned_issue', async ({
 })
 
 app.action('assign_help_request_to_user', async ({
-                                                     body, action, ack, client, context
-                                                 }) => {
+    body, action, ack, client, context
+}) => {
     try {
         await ack();
 
@@ -401,11 +741,23 @@ async function replaceAsync(str, regex, asyncFn) {
     return str.replace(regex, () => data.shift());
 }
 
-app.event('message', async ({event, context, client, say}) => {
+/**
+ * Users may have a display name set or may not.
+ * Display name is normally better than real name, so we prefer that but fallback to real name.
+ */
+function convertProfileToName(profile) {
+    let name = profile.display_name_normalized
+    if (!name) {
+        name = profile.real_name_normalized;
+    }
+    return name;
+}
+
+app.event('message', async ({ event, context, client, say }) => {
     try {
         // filter unwanted channels in case someone invites the bot to it
         // and only look at threaded messages
-        if (isReportChannel(event.channel) && event.thread_ts) {
+        if (event.channel === reportChannelId && event.thread_ts) {
             const slackLink = (await client.chat.getPermalink({
                 channel: event.channel,
                 'message_ts': event.thread_ts
@@ -415,15 +767,18 @@ app.event('message', async ({event, context, client, say}) => {
                 user: event.user
             }))
 
-            const displayName = user.profile.display_name
+            const name = convertProfileToName(user.profile);
 
             const helpRequestMessages = (await client.conversations.replies({
-                channel: event.channel,
+                channel: reportChannelId,
                 ts: event.thread_ts,
                 limit: 200, // after a thread is 200 long we'll break but good enough for now
             })).messages
 
-            if (helpRequestMessages.length > 0 && helpRequestMessages[0].text === 'New support request raised') {
+            if (helpRequestMessages.length > 0 && (
+                helpRequestMessages[0].text === 'New support request raised' ||
+                helpRequestMessages[0].text === 'Duplicate issue')
+            ) {
                 const jiraId = extractJiraIdFromBlocks(helpRequestMessages[0].blocks)
 
                 const groupRegex = /<!subteam\^.+\|([^>.]+)>/g
@@ -435,12 +790,12 @@ app.event('message', async ({event, context, client, say}) => {
                     const user = (await client.users.profile.get({
                         user: $1
                     }))
-                    return `@${user.profile.display_name}`
+                    return `@${convertProfileToName(user.profile)}`
                 });
 
                 await addCommentToHelpRequest(jiraId, {
                     slackLink,
-                    displayName,
+                    name,
                     message: newTargetText
                 })
             } else {
