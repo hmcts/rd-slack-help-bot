@@ -220,7 +220,7 @@ const ws = new WorkflowStep('superbot_help_request', {
             description: inputs.desc.value,
             analysis: inputs.alsys.value,
             replicateSteps: inputs.replicateSteps.value,
-            testAccount: inputs.testAccount.value,
+            testAccount: inputs.testAccount.value || "None",
             references: inputs.references.value
         }
 
