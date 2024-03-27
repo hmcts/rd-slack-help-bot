@@ -374,7 +374,7 @@ app.view('create_help_request', async ({ ack, body, view, client }) => {
             description: view.state.values.description.description.value,
             analysis: view.state.values.analysis.analysis.value,
             replicateSteps: view.state.values.replicateSteps.replicateSteps.value,
-            testAccount: view.state.values.testAccount.testAccount.value,
+            testAccount: view.state.values.testAccount?.testAccount?.value || "None",
         }
 
         const jiraId = await createHelpRequest({
