@@ -442,6 +442,7 @@ function openHelpRequestBlocks() {
             {
                 "type": "input",
                 "block_id": "testAccount",
+                "optional": true,
                 "element": {
                     "type": "plain_text_input",
                     "multiline": false,
