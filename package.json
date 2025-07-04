@@ -22,7 +22,7 @@
     "lodash": "^4.17.21"
   },
   "devDependencies": {
-    "jest": "30.0.3",
+    "jest": "30.0.4",
     "jest-extended": "6.0.0"
   },
   "jest": {
