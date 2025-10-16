@@ -15,7 +15,7 @@
     "@slack/bolt": "4.5.0",
     "@types/config": "3.3.4",
     "@types/jira-client": "7.1.9",
-    "applicationinsights": "2.9.5",
+    "applicationinsights": "2.9.8",
     "config": "4.1.1",
     "jira-client": "8.2.2",
     "js-yaml": "4.1.0",
