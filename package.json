@@ -12,7 +12,7 @@
   "license": "MIT",
   "dependencies": {
     "@hmcts/properties-volume": "1.2.0",
-    "@slack/bolt": "4.5.0",
+    "@slack/bolt": "4.6.0",
     "@types/config": "3.3.5",
     "@types/jira-client": "7.1.9",
     "applicationinsights": "2.9.8",
