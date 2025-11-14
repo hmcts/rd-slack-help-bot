@@ -18,7 +18,7 @@
     "applicationinsights": "2.9.8",
     "config": "4.1.1",
     "jira-client": "8.2.2",
-    "js-yaml": "4.1.0",
+    "js-yaml": "4.1.1",
     "lodash": "4.17.21"
   },
   "devDependencies": {
