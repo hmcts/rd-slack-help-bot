@@ -16,7 +16,7 @@
     "@types/config": "3.3.5",
     "@types/jira-client": "7.1.9",
     "applicationinsights": "3.13.0",
-    "config": "4.3.0",
+    "config": "4.4.0",
     "jira-client": "8.2.2",
     "js-yaml": "4.1.1",
     "lodash": "4.17.23"
