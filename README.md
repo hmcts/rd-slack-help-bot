@@ -75,6 +75,9 @@ $ set -o allexport; source .env; set +o allexport
 
 Install dependencies by executing the following command:
 
+# For Jira Cloud, open "$JIRA_BROWSE_URL/_edge/tenant_info" in a browser,
+# then copy the cloudId value into JIRA_CLOUD_ID.
+
  ```bash
 $ npm install
  ```
