@@ -13,9 +13,12 @@ const jiraStartTransitionId = config.get('jira.start_transition_id')
 const jiraDoneTransitionId = config.get('jira.done_transition_id')
 const extractProjectRegex = new RegExp(`(${jiraProject}-[\\d]+)`)
 
+const jiraBaseUrl = new URL(config.get("jira.base_url"));
 const jira = new JiraApi({
-    protocol: 'https',
-    host: 'tools.hmcts.net/jira',
+    protocol: jiraBaseUrl.protocol.replace(":", ""),
+    host: jiraBaseUrl.hostname,
+    port: jiraBaseUrl.port,
+    base: jiraBaseUrl.pathname.replace(/\/+$/, ""),
     bearer: config.get('jira.api_token'),
     apiVersion: '2',
     strictSSL: true
